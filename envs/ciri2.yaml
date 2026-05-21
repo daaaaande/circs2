@@ -1,0 +1,9 @@
+name: circrna_ciri2
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - ciri2 =2.0.*        # installs CIRI2.pl and its Perl dependencies
+  - perl =5.32.*
+  - samtools =1.20.*    # CIRI2 calls samtools internally for some operations

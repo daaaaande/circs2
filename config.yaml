@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# circrna_pipeline  –  config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Path to samplesheet CSV.
+# Required columns:  sample | fastq_r1 | fastq_r2
+# fastq_r1/r2 must be full paths to gzipped FASTQ files (.fastq.gz)
+samplesheet: "samplesheet_1412.csv"
+
+# Where all output will be written
+output_dir: "/gpfs/project/projects/bmfz_gtl/software/circs2/test_results"
+
+# ── reference files ───────────────────────────────────────────────────────────
+# Genome FASTA  (uncompressed; used by CIRI2 and CIRCexplorer2 annotate)
+genome_fasta: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/bwa/Homo_sapiens.GRCh38.dna_sm.toplevel.fa"
+
+# GTF annotation  (Ensembl or GENCODE recommended; used by STAR and CIRI2)
+gtf: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/bwa/Homo_sapiens.GRCh38.111.gtf"
+
+# UCSC genePred / refFlat format for CIRCexplorer2 annotate.
+# Generate with:
+#   gtfToGenePred -genePredExt <gtf> /dev/stdout | \
+#       awk 'BEGIN{OFS="\t"}{print $12, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10}' \
+#       > annotation.genePred.txt
+# Or download from UCSC Table Browser (refGene / ensGene, "all fields" format).
+gene_pred: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/bwa/annotation.genePred_hg38_for_circex2.txt"
+
+# ── alignment indices ─────────────────────────────────────────────────────────
+# STAR genome index directory.
+# Build with (sjdbOverhang = read_length - 1, typically 149 for 150 bp reads):
+#   STAR --runMode genomeGenerate \
+#        --genomeDir /path/to/star_index \
+#        --genomeFastaFiles genome.fa \
+#        --sjdbGTFfile annotation.gtf \
+#        --sjdbOverhang 149 \
+#        --runThreadN 16
+star_index: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/star_2710b_hg38_ensembl"
+
+# BWA index prefix (genome.fa → genome.fa.{amb,ann,bwt,pac,sa}).
+# Build with:
+#   bwa index /path/to/genome.fa
+bwa_index: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/bwa/hg38_bwa"
+
+# ── tool parameters ───────────────────────────────────────────────────────────
+# CIRI2: minimum number of back-splice junction reads to report a circRNA
+ciri_full_min_reads: 2
+# Extra STAR flags (e.g. "--twopassMode Basic" for better novel junction detection)
+star_extra: "--twopassMode Basic"
+
+# Extra Trim Galore flags
+trim_galore_extra: ""

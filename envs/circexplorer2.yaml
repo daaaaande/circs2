@@ -1,0 +1,11 @@
+name: circrna_circexplorer2
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - circexplorer2 =2.3.*
+  - python =3.8.*       # CIRCexplorer2 still targets py3.8; lock to avoid breakage
+  - pysam =0.21.*
+  - numpy
+  - scipy
