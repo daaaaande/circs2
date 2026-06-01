@@ -4,6 +4,6 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - ciri2 =2.0.*        # installs CIRI2.pl and its Perl dependencies
+  - bwa =0.7.18.*
+  - samtools =1.20.*
   - perl =5.32.*
-  - samtools =1.20.*    # CIRI2 calls samtools internally for some operations

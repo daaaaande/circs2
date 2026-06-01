@@ -1,9 +1,0 @@
-name: circrna_ciri_full
-channels:
-  - bioconda
-  - conda-forge
-  - defaults
-dependencies:
-  - ciri-full =2.1.*
-  - bwa =0.7.18.*
-  - samtools =1.20.*

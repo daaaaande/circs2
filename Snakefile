@@ -43,16 +43,27 @@ def get_all_outputs():
         "{output_dir}/circexplorer2/{sample}/{sample}_circexplorer2.txt",
         output_dir=OUTPUT_DIR, sample=SAMPLES
     )
-    # "{output_dir}/ciri_full/{sample}/{sample}.ciri_full.tsv",
     outputs += expand(
-        "{output_dir}/ciri_full/{sample}/{sample}.ciri_full.tsv",
+        "{output_dir}/ciri2/{sample}/{sample}.ciri2.tsv",
         output_dir=OUTPUT_DIR, sample=SAMPLES
     )
+
+    outputs += expand(
+        "{output_dir}/featurecounts/all_samples_linear.counts.txt",
+        output_dir=OUTPUT_DIR
+    )
+
     outputs += expand(
         "{output_dir}/consensus/{sample}/{sample}_consensus.tsv",
         output_dir=OUTPUT_DIR, sample=SAMPLES
     )
-    outputs += [f"{OUTPUT_DIR}/final/all_samples_normalized.tsv"]
+    outputs += [
+        f"{OUTPUT_DIR}/final/cx2_raw.tsv",
+        f"{OUTPUT_DIR}/final/cx2_rpm.tsv",
+        f"{OUTPUT_DIR}/final/ciri2_raw.tsv",
+        f"{OUTPUT_DIR}/final/ciri2_rpm.tsv",
+    ]
+
     outputs += [f"{OUTPUT_DIR}/multiqc_report.html"]
     return outputs
 
@@ -144,8 +155,7 @@ rule star_align_chimeric:
         r1    = "{output_dir}/trimmed/{sample}_R1_trimmed.fq.gz",
         r2    = "{output_dir}/trimmed/{sample}_R2_trimmed.fq.gz",
     output:
-        bam       = "{output_dir}/star/{sample}/Aligned.sortedByCoord.out.bam",
-        bai       = "{output_dir}/star/{sample}/Aligned.sortedByCoord.out.bam.bai",
+        bam       = temp("{output_dir}/star/{sample}/Aligned.sortedByCoord.out.bam"),
         chimeric  = "{output_dir}/star/{sample}/Chimeric.out.junction",
         log_final = "{output_dir}/star/{sample}/Log.final.out"
     params:
@@ -185,8 +195,8 @@ rule star_align_chimeric:
             --outFilterMultimapNmax 20 \
             --runRNGseed 1234 \
             {params.extra} >{log} 2>&1
-        samtools index {output.bam} >>{log} 2>&1
         """
+#         samtools index {output.bam} >>{log} 2>&1 # maybe extra rule, maybe add later. is the index actually needed??
 
 
 rule circexplorer2_parse:
@@ -212,6 +222,49 @@ rule circexplorer2_parse:
             -b {output.bed} \
             {input.chimeric} >{log} 2>&1
         """
+
+rule featurecounts:
+    """
+    Gene-level linear RNA counts from the STAR BAM.
+    Used for circ/linear ratio calculation and differential expression.
+    Chimeric reads are excluded via -Q 10 (multimapper filter).
+    """
+    input:
+        bam = expand("{output_dir}/star/{sample}/Aligned.sortedByCoord.out.bam",output_dir=OUTPUT_DIR,sample=SAMPLES),
+        gtf = config["gtf"]
+    output:
+        counts  = "{output_dir}/featurecounts/all_samples_linear.counts.txt",
+        summary = "{output_dir}/featurecounts/all_samples_linear.counts.txt.summary"
+    params:
+        strand  = config.get("featurecounts_strand", 2),   # 0=unstranded, 1=forward, 2=reverse
+        extra   = config.get("featurecounts_extra", "")
+    conda:
+        "envs/featurecounts.yaml"
+    log:
+        "{output_dir}/logs/featurecounts/featurecounts_all.log"
+    resources:
+        threads  = lambda wildcards, attempt: attempt * 4,
+        mem_gb   = lambda wildcards, attempt: 8 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "featureCounts linear RNA quantification for all samples ..."
+    shell:
+        """
+        featureCounts \
+            -T {resources.threads} \
+            -a {input.gtf} \
+            -o {output.counts} \
+            -p --countReadPairs \
+            -B \
+            -C \
+            -s {params.strand} \
+            -Q 10 \
+            --fracOverlap 0.5 \
+            {params.extra} \
+            {input.bam} >{log} 2>&1
+        """
+
+
 
 
 rule circexplorer2_annotate:
@@ -257,7 +310,7 @@ rule bwa_align:
         r2    = "{output_dir}/trimmed/{sample}_R2_trimmed.fq.gz",
     output:
         sam = temp("{output_dir}/bwa/{sample}/{sample}.sam"),
-        bam = "{output_dir}/bwa/{sample}/{sample}.sorted.bam",
+        bam = temp("{output_dir}/bwa/{sample}/{sample}.sorted.bam"),
         bai = "{output_dir}/bwa/{sample}/{sample}.sorted.bam.bai"
     params:
         rg = r"@RG\tID:{sample}\tSM:{sample}\tPL:ILLUMINA",
@@ -285,40 +338,63 @@ rule bwa_align:
         samtools index {output.bam} >>{log} 2>&1
         """
 
-rule ciri_full:
+
+
+
+# ── one-time download of CIRI2 (no conda package exists) ─────────────────────
+CIRI2_SCRIPT = "resources/CIRI2.pl"
+
+localrules: download_ciri2
+
+rule download_ciri2:
+    output:
+        CIRI2_SCRIPT
+    shell:
+        """
+        mkdir -p resources
+        wget -q -O resources/CIRI_v2.0.6.zip \
+            https://sourceforge.net/projects/ciri/files/CIRI2/CIRI_v2.0.6.zip/download
+        unzip -jo resources/CIRI_v2.0.6.zip "*/CIRI2.pl" -d resources/
+        chmod +x resources/CIRI2.pl
+        rm resources/CIRI_v2.0.6.zip
+        """
+
+rule ciri2:
     input:
         sam    = "{output_dir}/bwa/{sample}/{sample}.sam",
         genome = config["genome_fasta"],
-        gtf    = config["gtf"]
+        gtf    = config["gtf"],
+        script = CIRI2_SCRIPT           # ensures download runs first
     output:
-        tsv    = "{output_dir}/ciri_full/{sample}/{sample}.ciri_full.tsv"
+        tsv    = "{output_dir}/ciri2/{sample}/{sample}.ciri2.tsv"
     params:
-        outdir    = "{output_dir}/ciri_full/{sample}",
-        min_reads = config.get("ciri_full_min_reads", 2)
+        min_reads = config.get("ciri2_min_reads", 2),
+        dir="{output_dir}/ciri2/{sample}/"
     conda:
-        "envs/ciri_full.yaml"
+        "envs/ciri2.yaml"
     log:
-        "{output_dir}/logs/ciri_full/{sample}.log"
+        "{output_dir}/logs/ciri2/{sample}.log"
     resources:
-        threads  = lambda wildcards, attempt: attempt * 4,
-        mem_gb   = lambda wildcards, attempt: 16 + (attempt * 8),
-        time_hrs = lambda wildcards, attempt: attempt * 3
+        threads  = lambda wildcards, attempt: attempt * 6,
+        mem_gb   = lambda wildcards, attempt: 32 + (attempt * 8),
+        time_hrs = lambda wildcards, attempt: attempt * 2
     message:
-        "CIRI-full circRNA detection for {wildcards.sample} ..."
+        "CIRI2 circRNA detection for {wildcards.sample} ..."
     shell:
         """
-        CIRI_Full.py pipeline \
-            -1 {input.sam} \
-            -r {input.genome} \
-            -a {input.gtf} \
-            -o {params.outdir}/{wildcards.sample} \
-            -t {resources.threads} \
-            --min_junction_reads {params.min_reads} \
+        rm -rf {params.dir}
+        mkdir -p {params.dir}
+        perl {input.script} \
+            -I {input.sam} \
+            -O {output.tsv} \
+            -F {input.genome} \
+            -A {input.gtf} \
+            -T {resources.threads} \
+            -M {params.min_reads} \
             >{log} 2>&1
-
-        # CIRI-full writes <prefix>.ciri; symlink to expected name
-        ln -sf {params.outdir}/{wildcards.sample}.ciri {output.tsv}
         """
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Consensus & normalisation
@@ -332,7 +408,8 @@ rule consensus_filter:
     """
     input:
         cx2        = "{output_dir}/circexplorer2/{sample}/{sample}_circexplorer2.txt",
-        ciri2    = "{output_dir}/ciri_full/{sample}/{sample}.ciri_full.tsv",
+        ciri2    = "{output_dir}/ciri2/{sample}/{sample}.ciri2.tsv",
+        #ciri2    = "{output_dir}/ciri_full/{sample}/{sample}.ciri_full.tsv",
         star_log   = "{output_dir}/star/{sample}/Log.final.out"
     output:
         consensus  = "{output_dir}/consensus/{sample}/{sample}_consensus.tsv"
@@ -362,7 +439,12 @@ rule merge_samples:
             sample=SAMPLES
         )
     output:
-        matrix = "{output_dir}/final/all_samples_normalized.tsv"
+        cx2_raw   = "{output_dir}/final/cx2_raw.tsv",
+        cx2_rpm   = "{output_dir}/final/cx2_rpm.tsv",
+        ciri2_raw = "{output_dir}/final/ciri2_raw.tsv",
+        ciri2_rpm = "{output_dir}/final/ciri2_rpm.tsv"
+    params:
+        min_bsj = config.get("min_bsj", 2)
     conda:
         "envs/python.yaml"
     log:
@@ -372,7 +454,7 @@ rule merge_samples:
         mem_gb   = 8,
         time_hrs = 1
     message:
-        "Merging all samples into final normalised matrix ..."
+        "Merging all samples into final normalised matrices ..."
     script:
         "scripts/merge_samples.py"
 

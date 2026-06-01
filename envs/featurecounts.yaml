@@ -1,0 +1,7 @@
+name: featurecounts
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - subread =2.0.*    # featureCounts ships inside the subread package

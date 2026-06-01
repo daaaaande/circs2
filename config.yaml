@@ -41,11 +41,24 @@ star_index: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/sta
 #   bwa index /path/to/genome.fa
 bwa_index: "/gpfs/project/projects/bmfz_gtl/software/reference_genomes/hg38/bwa/hg38_bwa"
 
+
 # ── tool parameters ───────────────────────────────────────────────────────────
 # CIRI2: minimum number of back-splice junction reads to report a circRNA
-ciri_full_min_reads: 2
+ciri2_min_reads: 2
+ 
+# Minimum BSJ reads in at least one sample (applied after cross-sample merge)
+min_bsj: 2
+
 # Extra STAR flags (e.g. "--twopassMode Basic" for better novel junction detection)
 star_extra: "--twopassMode Basic"
 
 # Extra Trim Galore flags
 trim_galore_extra: ""
+
+
+# Read length (used by MapSplice internally)
+read_length: 150
+
+# featurecounts for linear rna counts:
+featurecounts_strand: 2 # # 0=unstranded, 1=forward, 2=reverse
+featurecounts_extra: ""

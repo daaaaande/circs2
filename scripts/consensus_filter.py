@@ -60,38 +60,57 @@ def parse_circexplorer2(path: str) -> pd.DataFrame:
     df["coord"] = df["chrom"] + ":" + df["start"].astype(str) + "-" + df["end"].astype(str) + ":" + df["strand"]
     return df[["coord", "chrom", "start", "end", "strand", "geneName", "circType", "cx2_BSJ"]]
 
-# top: replace parse_ciri2() with this
 def parse_ciri_full(path: str) -> pd.DataFrame:
     """
-    Parse CIRI-full .ciri output (same BSJ columns as CIRI2, produced
-    by the internal CIRI2 detection step inside the CIRI-full pipeline).
-    Relevant columns: circRNA_ID | chr | circRNA_start | circRNA_end |
-                      #junction_reads | strand
+    Parse CIRI2 / CIRI-full TSV output.
+    Columns (0-based):
+      0  circRNA_ID | 1  chr | 2  circRNA_start | 3  circRNA_end |
+      4  #junction_reads | 5  SM_MS_SMS | 6  #non_junction_reads |
+      7  junction_reads_ratio | 8  circRNA_type | 9  gene_id |
+      10 strand | 11 junction_reads_ID (may contain commas/tabs → ragged)
+    Coordinates are 1-based; converted to 0-based here.
     """
-    df = pd.read_csv(path, sep="\t", comment="#")
-    df.columns = df.columns.str.strip()
-    df = df.rename(columns={
-        "chr":             "chrom",
-        "circRNA_start":   "start",
-        "circRNA_end":     "end",
-        "#junction_reads": "ciri2_BSJ",
-    })
-    df["start"]     = df["start"].astype(int) - 1   # 1-based → 0-based
-    df["end"]       = df["end"].astype(int)
-    df["coord"]     = df["chrom"] + ":" + df["start"].astype(str) + "-" + df["end"].astype(str) + ":" + df["strand"]
-    df["ciri2_BSJ"] = df["ciri2_BSJ"].astype(int)
+    df = pd.read_csv(
+        path,
+        sep="\t",
+        comment="#",
+        usecols=[1, 2, 3, 4, 10],          # select only what we need by position
+        header=0,
+        names=["chrom", "start", "end", "ciri2_BSJ", "strand"],
+        skiprows=1,                          # skip the real header row (we're supplying names)
+        engine="python",                     # more tolerant of ragged rows
+        on_bad_lines="warn",                 # skip/warn on malformed lines instead of crashing
+    )
+
+    log.info(f"CIRI2 raw shape after read: {df.shape}")
+
+    # drop any rows where key fields didn't parse cleanly
+    df = df.dropna(subset=["start", "end", "ciri2_BSJ", "strand"])
+
+    df["start"]     = pd.to_numeric(df["start"],     errors="coerce").astype("Int64") - 1
+    df["end"]       = pd.to_numeric(df["end"],        errors="coerce").astype("Int64")
+    df["ciri2_BSJ"] = pd.to_numeric(df["ciri2_BSJ"], errors="coerce").astype("Int64")
+
+    df = df.dropna(subset=["start", "end", "ciri2_BSJ"])  # drop any coerced NaNs
+
+    df["coord"] = (df["chrom"] + ":" + df["start"].astype(str) + "-" +
+                   df["end"].astype(str) + ":" + df["strand"])
+
     return df[["coord", "ciri2_BSJ"]]
-
-
-
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-sample     = snakemake.wildcards.sample          # noqa: F821
-cx2_path   = snakemake.input.cx2                 # noqa: F821
-ciri_full_path = snakemake.input.ciri_full   # was: snakemake.input.ciri2star_log   = snakemake.input.star_log            # noqa: F821
-out_path   = snakemake.output.consensus          # noqa: F821
+sample         = snakemake.wildcards.sample      # noqa: F821
+cx2_path       = snakemake.input.cx2             # noqa: F821
+ciri_full_path = snakemake.input.ciri2           # noqa: F821  (Snakefile input key is still 'ciri2')
+star_log       = snakemake.input.star_log        # noqa: F821
+out_path       = snakemake.output.consensus      # noqa: F821
 
+
+
+
+
+#
 log.info(f"[{sample}] Parsing STAR log: {star_log}")
 total_mapped = parse_star_log(star_log)
 log.info(f"[{sample}] Uniquely mapped reads: {total_mapped:,}")
@@ -100,7 +119,8 @@ log.info(f"[{sample}] Parsing CIRCexplorer2: {cx2_path}")
 cx2 = parse_circexplorer2(cx2_path)
 log.info(f"[{sample}] CIRCexplorer2 circRNAs: {len(cx2)}")
 
-log.info(f"[{sample}] Parsing CIRI2: {ciri2_path}")
+# 
+log.info(f"[{sample}] Parsing CIRI-full: {ciri_full_path}")
 ciri2 = parse_ciri_full(ciri_full_path)      # was: parse_ciri2(ciri2_path)
 log.info(f"[{sample}] CIRI2 circRNAs: {len(ciri2)}")
 
