@@ -64,6 +64,15 @@ def get_all_outputs():
         f"{OUTPUT_DIR}/final/ciri2_rpm.tsv",
     ]
 
+    outputs += [
+        f"{OUTPUT_DIR}/reports/linear_report.html",
+        f"{OUTPUT_DIR}/reports/cx2_report.html",
+        f"{OUTPUT_DIR}/reports/ciri2_report.html",
+]
+
+
+
+
     outputs += [f"{OUTPUT_DIR}/multiqc_report.html"]
     return outputs
 
@@ -117,8 +126,8 @@ rule trim_galore:
     params:
         outdir = "{output_dir}/trimmed",
         extra  = config.get("trim_galore_extra"),
-        long_r1="{output_dir}/trimmed/{sample}_R1_001_val_1.fq.gz",
-        long_r2="{output_dir}/trimmed/{sample}_R2_001_val_2.fq.gz"
+        long_r1="{output_dir}/trimmed/{sample}_R1_val_1.fq.gz",
+        long_r2="{output_dir}/trimmed/{sample}_R2_val_2.fq.gz"
     conda:
         "envs/qc.yaml"
     log:
@@ -487,3 +496,82 @@ rule multiqc:
             --filename multiqc_report.html \
             --force >{log} 2>&1
         """
+rule report_linear:
+    """
+    Interactive HTML QC report for linear gene expression counts.
+    Input: combined featureCounts matrix (all samples, one file).
+    Script: scripts/linear_report.py
+    Sections: Summary | QC Metrics | Sample Structure | Gene Analysis | Group Estimation
+    """
+    input:
+        counts = "{output_dir}/featurecounts/all_samples_linear.counts.txt"
+    output:
+        html = "{output_dir}/reports/linear_report.html"
+    conda:
+        "envs/reports.yaml"
+    log:
+        "{output_dir}/logs/reports/linear_report.log"
+    resources:
+        threads  = 1,
+        mem_gb   = lambda wildcards, attempt: 8 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "Generating linear RNA QC report ..."
+    script:
+        "scripts/linear_report.py"
+
+
+# ── CIRCexplorer2 RPM matrix ──────────────────────────────────────────────────
+rule report_cx2:
+    """
+    Interactive HTML QC report for CIRCexplorer2 circRNA RPM values.
+    Input: wide RPM matrix from merge_samples.py (circRNAs × samples).
+    Script: scripts/circrna_report.py
+    Sections: Summary | QC Metrics | Sample Structure | circRNA Analysis | Group Estimation
+    """
+    input:
+        rpm = "{output_dir}/final/cx2_rpm.tsv"
+    output:
+        html = "{output_dir}/reports/cx2_report.html"
+    params:
+        tool_label = "CIRCexplorer2"
+    conda:
+        "envs/reports.yaml"
+    log:
+        "{output_dir}/logs/reports/cx2_report.log"
+    resources:
+        threads  = 1,
+        mem_gb   = lambda wildcards, attempt: 8 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "Generating CIRCexplorer2 circRNA QC report ..."
+    script:
+        "scripts/circrna_report.py"
+
+
+# ── CIRI2 RPM matrix ──────────────────────────────────────────────────────────
+rule report_ciri2:
+    """
+    Interactive HTML QC report for CIRI2 circRNA RPM values.
+    Input: wide RPM matrix from merge_samples.py (circRNAs × samples).
+    Script: scripts/circrna_report.py
+    Sections: Summary | QC Metrics | Sample Structure | circRNA Analysis | Group Estimation
+    """
+    input:
+        rpm = "{output_dir}/final/ciri2_rpm.tsv"
+    output:
+        html = "{output_dir}/reports/ciri2_report.html"
+    params:
+        tool_label = "CIRI2"
+    conda:
+        "envs/reports.yaml"
+    log:
+        "{output_dir}/logs/reports/ciri2_report.log"
+    resources:
+        threads  = 1,
+        mem_gb   = lambda wildcards, attempt: 8 + (attempt * 4),
+        time_hrs = lambda wildcards, attempt: attempt * 1
+    message:
+        "Generating CIRI2 circRNA QC report ..."
+    script:
+        "scripts/circrna_report.py"

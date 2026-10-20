@@ -1,0 +1,1 @@
+snakemake -s Snakefile --profile pbs

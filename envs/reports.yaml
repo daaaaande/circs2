@@ -1,0 +1,16 @@
+# envs/reports.yaml
+# Dependencies for linear_report.py and circrna_report.py
+# All three report rules share this environment.
+name: reports
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy>=1.24
+  - pandas>=2.0
+  - plotly>=5.18
+  - scipy>=1.11
+  - scikit-learn>=1.3
+  # UMAP is optional — scripts fall back to PCA if unavailable
+  - umap-learn>=0.5
