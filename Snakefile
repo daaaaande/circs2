@@ -113,7 +113,6 @@ rule fastqc:
         mv {params.outdir}/$(basename {input.r2} .fastq.gz)_fastqc.html {output.html_r2}
         mv {params.outdir}/$(basename {input.r2} .fastq.gz)_fastqc.zip  {output.zip_r2}
         """
-
 # ── adapter trimming ──────────────────────────────────────────────────────────
 rule trim_galore:
     input:
@@ -124,14 +123,10 @@ rule trim_galore:
         r2 = "{output_dir}/trimmed/{sample}_R2_trimmed.fq.gz"
     params:
         outdir  = "{output_dir}/trimmed",
-        linkdir = "{output_dir}/trimmed/.links_{sample}",
         extra   = config.get("trim_galore_extra", ""),
-        # fixed names Trim Galore will see (and derive its output names from)
-        link_r1 = "{output_dir}/trimmed/.links_{sample}/{sample}_R1.fastq.gz",
-        link_r2 = "{output_dir}/trimmed/.links_{sample}/{sample}_R2.fastq.gz",
-        # what Trim Galore will then produce
-        long_r1 = "{output_dir}/trimmed/{sample}_R1_val_1.fq.gz",
-        long_r2 = "{output_dir}/trimmed/{sample}_R2_val_2.fq.gz"
+        # with --basename {sample}, Trim Galore always writes these two names
+        long_r1 = "{output_dir}/trimmed/{sample}_val_1.fq.gz",
+        long_r2 = "{output_dir}/trimmed/{sample}_val_2.fq.gz"
     conda:
         "envs/qc.yaml"
     log:
@@ -144,27 +139,19 @@ rule trim_galore:
         "Trimming adapters for {wildcards.sample} ..."
     shell:
         """
-        mkdir -p {params.outdir} {params.linkdir}
+        mkdir -p {params.outdir}
 
-        # 1) give the inputs predictable names (absolute symlinks, originals untouched)
-        ln -sf "$(readlink -f {input.r1})" {params.link_r1}
-        ln -sf "$(readlink -f {input.r2})" {params.link_r2}
-
-        # 2) trim
         trim_galore {params.extra} \
             --cores {resources.threads} \
             --paired \
             --fastqc \
+            --basename {wildcards.sample} \
             -o {params.outdir} \
-            {params.link_r1} {params.link_r2} \
+            {input.r1} {input.r2} \
             > {log} 2>&1
 
-        # 3) rename to the final output names (>> so the log isn't overwritten)
         mv {params.long_r1} {output.r1} >> {log} 2>&1
         mv {params.long_r2} {output.r2} >> {log} 2>&1
-
-        # 4) clean up the symlinks
-        rm -rf {params.linkdir}
         """
 
 # ═══════════════════════════════════════════════════════════════════════════════
