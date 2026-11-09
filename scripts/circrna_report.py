@@ -20,6 +20,8 @@ Sections (logical flow):
 Input format: TSV with a 'coord' column (chr:start-end:strand) followed by
 one column per sample, values are RPM (may be 0 for undetected circRNAs).
 This matches the cx2_rpm.tsv / ciri2_rpm.tsv output of merge_samples.py.
+
+A matrix with 0 circRNAs (or 0 samples) is valid: a minimal report is written.
 """
 
 import os, sys, json, time, datetime, warnings, traceback
@@ -108,6 +110,7 @@ def load_counts(path):
       col 1-6 : chrom, start, end, strand, gene_name, circ_type  — metadata
       col 7+  : one column per sample (RPM values)
     Returns raw (RPM matrix, circRNAs × samples), genes (coord strings), names (sample list).
+    A header-only file gives raw with shape (0, n_samples).
     """
     df = pd.read_csv(path, sep="\t", comment="#")
     df.columns = df.columns.str.strip()
@@ -129,16 +132,16 @@ def normalise(raw):
     For circRNA RPM matrices the values are already RPM-normalised and
     pre-filtered upstream (2-of-2 consensus + min_bsj in merge_samples.py).
     No additional abundance filter is applied here — all circRNAs are kept.
-    lib  = total BSJ RPM per sample (proxy for circRNA activity level).
+    lib  = total BSJ RPM per sample (proxy for circRNA activity level);
+           0 is a valid value (sample without detected circRNAs).
     lcpm = log2(RPM + 0.01) for visualisation; the +0.01 pseudocount prevents
            log(0) for circRNAs not detected in a given sample.
     """
-    lib  = raw.sum(axis=0)                         # total RPM per sample
-    lib  = np.where(lib == 0, 1, lib)
-    cpm  = raw.copy()                              # already RPM — no re-normalisation
-    keep = np.ones(raw.shape[0], dtype=bool)       # keep ALL circRNAs — filtered upstream
+    lib   = raw.sum(axis=0)                        # total RPM per sample
+    cpm   = raw.copy()                             # already RPM — no re-normalisation
+    keep  = np.ones(raw.shape[0], dtype=bool)      # keep ALL circRNAs — filtered upstream
     cpm_f = cpm[keep]
-    lcpm  = np.log2(cpm_f + 0.01).T               # samples × circRNAs; log2(RPM+0.01)
+    lcpm  = np.log2(cpm_f + 0.01).T                # samples × circRNAs; log2(RPM+0.01)
     return lib, cpm, cpm_f, lcpm, keep
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -287,6 +290,7 @@ def fig_outlier_heatmap(names, lcpm, lib, n_after, n_filt):
     # ── Eight QC metrics ──────────────────────────────────────────────────────
     cor_mat  = np.corrcoef(lcpm)
     np.fill_diagonal(cor_mat, np.nan)          # exclude self-correlation
+    zero_val = np.log2(0.01)                   # log2 value of a true RPM of 0
     metrics = {
         "Total BSJ RPM":               lib.astype(float),
         "circRNAs detected\n(RPM > 0)":      np.array(n_after, dtype=float),
@@ -295,7 +299,7 @@ def fig_outlier_heatmap(names, lcpm, lib, n_after, n_filt):
                                               - np.percentile(lcpm, 25, axis=1),
         "CV (std/mean)\n(detected)":          np.array([lcpm[i].std() / (lcpm[i].mean() + 1e-9)
                                                         for i in range(n)]),
-        "% zeros (undetected)\n":             np.array([(lcpm[i] == 0).mean() * 100
+        "% zeros (undetected)\n":             np.array([(lcpm[i] <= zero_val + 1e-6).mean() * 100
                                                         for i in range(n)]),
         "Mean sample r\n(detected)":          np.nanmean(cor_mat, axis=1),
         "Min sample r\n(detected)":           np.nanmin(cor_mat, axis=1),
@@ -1276,6 +1280,31 @@ def nav_group(label, items):
     links = "".join(f'<a class="nav-item" href="#{s}">{n}</a>' for s, n in items)
     return f'<div class="nav-group"><div class="nav-label">{label}</div>{links}</div>'
 
+def write_empty_report(out_html, counts_f, names, tool_label):
+    """Minimal report for a matrix with 0 circRNAs (or 0 samples)."""
+    import html as _html
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    rows = "".join(f"<tr><td>{_html.escape(str(s))}</td><td>0</td><td>0</td></tr>"
+                   for s in names)
+    page = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>circRNA QC Report</title>
+<style>body{{font-family:Arial,sans-serif;margin:40px;color:#222}}
+table{{border-collapse:collapse;font-size:12px}}
+th{{background:#336699;color:#fff;padding:6px 14px;text-align:left}}
+td{{padding:5px 14px;border-bottom:1px solid #eee}}
+.note{{background:#fff8f0;border:1px solid #f5c06a;border-radius:4px;padding:10px 14px;max-width:700px}}
+</style></head><body>
+<h2>circRNA QC Report</h2>
+<p>{_html.escape(tool_label)} | {_html.escape(os.path.basename(counts_f))} | {ts}</p>
+<div class="note"><strong>No circRNAs to report.</strong><br>
+The matrix contains 0 circRNAs (no back-splice junction passed the 2-of-2 consensus
+and minimum-BSJ filters) across {len(names)} sample(s), so all plots were skipped.</div>
+<h3>Per-sample counts</h3>
+<table><thead><tr><th>Sample</th><th>Total BSJ RPM</th><th>circRNAs detected</th></tr></thead>
+<tbody>{rows}</tbody></table></body></html>"""
+    with open(out_html, "w", encoding="utf-8") as f:
+        f.write(page)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1315,7 +1344,7 @@ def main():
             warns_list.append(f"'{k}': {e}")
             warn(f"'{k}' failed:\n    {traceback.format_exc(limit=2)}")
 
-    print("\nRNA-seq QC HTML Report")
+    print("\ncircRNA QC HTML Report")
     print("=" * 50)
 
     # ── Load ─────────────────────────────────────────────────────────────────
@@ -1325,9 +1354,16 @@ def main():
         except Exception as e:
             print(f"\n[ERROR] {e}"); sys.exit(1)
         n_samp, n_raw = raw.shape[1], raw.shape[0]
-        print(f"\n    Samples: {n_samp}  |  Genes: {n_raw}")
+        print(f"\n    Samples: {n_samp}  |  circRNAs: {n_raw}")
         if n_samp < 2:
             warns_list.append("Only 1 sample — many plots will be skipped.")
+
+    # ── Zero circRNAs / zero samples: minimal report and stop ────────────────
+    if n_raw == 0 or n_samp == 0:
+        warn("Matrix has no circRNAs or no samples - writing minimal report")
+        write_empty_report(out_html, counts_f, names, tool_label)
+        print(f"\nDone → {out_html}\n")
+        return
 
     # ── Normalise ─────────────────────────────────────────────────────────────
     with step("Normalising"):
@@ -1335,9 +1371,9 @@ def main():
         genes_f  = genes[keep]
         n_filt   = lcpm.shape[1]
         n_before = (raw > 0).sum(axis=0).astype(int)
-        n_after  = (lcpm > 0).sum(axis=1).astype(int)
+        n_after  = (cpm_f > 0).sum(axis=0).astype(int)   # RPM > 0 (not log2 > 0)
         n_top    = min(2000, n_filt)
-        print(f"\n    Filtered: {n_filt} genes  |  Top-var: {n_top}")
+        print(f"\n    Filtered: {n_filt} circRNAs  |  Top-var: {n_top}")
 
     colors = make_colors(names)
 
@@ -1371,8 +1407,8 @@ def main():
 
         tbl_html = (
             f'<div class="card"><div class="card-title">Per-sample counts</div>'
-            f'<div class="card-note">Library size = total mapped reads (raw counts). '
-            f'Filtered = genes with RPM > 0 in ≥ 1 sample.</div>'
+            f'<div class="card-note">Total BSJ RPM = sum of all circRNA RPM values in the sample. '
+            f'Detected = circRNAs with RPM > 0 in that sample.</div>'
             f'<table class="qc"><thead><tr><th>Sample</th><th>Total BSJ RPM</th>'
             f'<th>circRNAs (raw)</th><th>circRNAs detected</th><th>Kept %</th>'
             f'</tr></thead><tbody>{rows}</tbody></table>{warn_html}</div>')
@@ -1404,7 +1440,7 @@ def main():
 
         body = (
             card("lib_sizes", "Library Sizes",
-                 "Total mapped reads per sample (raw counts). "
+                 "Total BSJ RPM per sample (sum of all circRNA RPM values). "
                  "Lines: mean (solid) and ±1 SD (dashed). Outliers deviate strongly from the mean.") +
             card("det_raw", "Genes Detected — Raw Counts",
                  "Genes with at least one read per sample. "

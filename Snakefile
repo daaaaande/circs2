@@ -402,7 +402,6 @@ rule ciri2:
             -F {input.genome} \
             -A {input.gtf} \
             -T {resources.threads} \
-            -M {params.min_reads} \
             >{log} 2>&1
         """
 
