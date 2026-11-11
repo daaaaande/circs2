@@ -117,22 +117,21 @@ rule fastqc:
 rule trim_galore:
     input:
         r1 = lambda wc: samples_df.loc[samples_df["sample"] == wc.sample, "fastq_r1"].values[0],
-        r2 = lambda wc: samples_df.loc[samples_df["sample"] == wc.sample, "fastq_r2"].values[0]
+        r2 = lambda wc: samples_df.loc[samples_df["sample"] == wc.sample, "fastq_r2"].values[0],
     output:
         r1 = "{output_dir}/trimmed/{sample}_R1_trimmed.fq.gz",
-        r2 = "{output_dir}/trimmed/{sample}_R2_trimmed.fq.gz"
+        r2 = "{output_dir}/trimmed/{sample}_R2_trimmed.fq.gz",
     params:
         outdir  = "{output_dir}/trimmed",
         extra   = config.get("trim_galore_extra", ""),
-        # with --basename {sample}, Trim Galore always writes these two names
         long_r1 = "{output_dir}/trimmed/{sample}_val_1.fq.gz",
-        long_r2 = "{output_dir}/trimmed/{sample}_val_2.fq.gz"
+        long_r2 = "{output_dir}/trimmed/{sample}_val_2.fq.gz",
     conda:
         "envs/qc.yaml"
     log:
         "{output_dir}/logs/trim_galore/{sample}.log"
     resources:
-        threads  = lambda wildcards, attempt: attempt * 8,
+        threads  = lambda wildcards, attempt: attempt * 4,
         mem_gb   = lambda wildcards, attempt: 12 + (attempt * 4),
         time_hrs = lambda wildcards, attempt: attempt * 2
     message:
@@ -153,7 +152,6 @@ rule trim_galore:
         mv {params.long_r1} {output.r1} >> {log} 2>&1
         mv {params.long_r2} {output.r2} >> {log} 2>&1
         """
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CIRCexplorer2 branch  (STAR chimeric alignment → CIRCexplorer2 parse/annotate)
 # ═══════════════════════════════════════════════════════════════════════════════
